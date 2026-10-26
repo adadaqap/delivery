@@ -1,27 +1,61 @@
-#include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <limits>
-#include <sstream>
 #include <string>
-#include <vector>
 
 using namespace std;
 
-static vector<string> dividir(const string& s, char d) {
-    vector<string> partes;
+const int MAX_NEGOCIOS = 20;
+const int MAX_CLIENTES = 50;
+const int MAX_MENSAJEROS = 20;
+const int MAX_ORDENES = 200;
+const int MAX_ITEMS = 20;
+const int MAX_LINEAS = 10;
+const int MAX_CAMPOS = 16;
+const double PI = 3.1416;
+
+static int dividir(const string& s, char d, string partes[], int maxPartes) {
+    int n = 0;
     string actual;
-    stringstream ss(s);
-    while (getline(ss, actual, d)) partes.push_back(actual);
-    return partes;
+    for (size_t i = 0; i <= s.size(); ++i) {
+        if (i == s.size() || s[i] == d) {
+            if (n < maxPartes) partes[n++] = actual;
+            actual = "";
+        } else {
+            actual += s[i];
+        }
+    }
+    return n;
 }
 
 static string limpiar(string s) {
-    for (char& c : s)
-        if (c == '|' || c == ';' || c == ':') c = ' ';
+    for (size_t i = 0; i < s.size(); ++i)
+        if (s[i] == '|' || s[i] == ';' || s[i] == ':') s[i] = ' ';
     return s;
+}
+
+static string fmt(double v, int dec) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%.*f", dec, v);
+    return string(buf);
+}
+
+template <class T>
+static int siguienteId(const T arr[], int n) {
+    int m = 0;
+    for (int i = 0; i < n; ++i)
+        if (arr[i].id() > m) m = arr[i].id();
+    return m + 1;
+}
+
+template <class T>
+static T* buscar(T arr[], int n, int id) {
+    for (int i = 0; i < n; ++i)
+        if (arr[i].id() == id) return &arr[i];
+    return nullptr;
 }
 
 struct Ubicacion {
@@ -30,7 +64,7 @@ struct Ubicacion {
 
     double distanciaKm(const Ubicacion& o) const {
         const double R = 6371.0;
-        const double rad = M_PI / 180.0;
+        const double rad = PI / 180.0;
         double dLat = (o.lat - lat) * rad;
         double dLon = (o.lon - lon) * rad;
         double a = sin(dLat / 2) * sin(dLat / 2) +
@@ -46,6 +80,7 @@ protected:
     Ubicacion ubi_;
 
 public:
+    Entidad() : id_(0) {}
     Entidad(int id, const string& nombre, Ubicacion ubi)
         : id_(id), nombre_(limpiar(nombre)), ubi_(ubi) {}
     virtual ~Entidad() = default;
@@ -63,69 +98,74 @@ public:
 
 protected:
     string base() const {
-        ostringstream o;
-        o << fixed << setprecision(6) << id_ << "|" << nombre_ << "|" << ubi_.lat << "|"
-          << ubi_.lon;
-        return o.str();
+        return to_string(id_) + "|" + nombre_ + "|" + fmt(ubi_.lat, 6) + "|" + fmt(ubi_.lon, 6);
     }
 };
 
 struct ItemMenu {
-    int id;
+    int id = 0;
     string nombre;
-    double precio;
+    double precio = 0.0;
 };
 
 class Negocio : public Entidad {
-    vector<ItemMenu> menu_;
+    ItemMenu menu_[MAX_ITEMS];
+    int nItems_;
 
 public:
-    using Entidad::Entidad;
+    Negocio() : Entidad(), nItems_(0) {}
+    Negocio(int id, const string& nombre, Ubicacion u) : Entidad(id, nombre, u), nItems_(0) {}
 
     string tipo() const override { return "NEGOCIO"; }
 
-    void agregarItem(const string& nombre, double precio) {
+    bool agregarItem(const string& nombre, double precio) {
         int nuevoId = 1;
-        for (const auto& it : menu_) nuevoId = max(nuevoId, it.id + 1);
-        menu_.push_back({nuevoId, limpiar(nombre), precio});
+        for (int i = 0; i < nItems_; ++i)
+            if (menu_[i].id >= nuevoId) nuevoId = menu_[i].id + 1;
+        return agregarItemConId(nuevoId, nombre, precio);
     }
-    void agregarItemConId(int id, const string& nombre, double precio) {
-        menu_.push_back({id, limpiar(nombre), precio});
+    bool agregarItemConId(int id, const string& nombre, double precio) {
+        if (nItems_ >= MAX_ITEMS) return false;  // menu lleno
+        menu_[nItems_].id = id;
+        menu_[nItems_].nombre = limpiar(nombre);
+        menu_[nItems_].precio = precio;
+        ++nItems_;
+        return true;
     }
     const ItemMenu* buscarItem(int id) const {
-        for (const auto& it : menu_)
-            if (it.id == id) return &it;
+        for (int i = 0; i < nItems_; ++i)
+            if (menu_[i].id == id) return &menu_[i];
         return nullptr;
     }
-    const vector<ItemMenu>& menu() const { return menu_; }
+    int cantidadItems() const { return nItems_; }
 
     void mostrarMenu() const {
         cout << "--- Menu de " << nombre_ << " ---\n";
-        if (menu_.empty()) cout << "(sin items)\n";
-        for (const auto& it : menu_)
-            cout << "  " << it.id << ") " << left << setw(25) << it.nombre << right << "S/ "
-                 << fixed << setprecision(2) << it.precio << "\n";
+        if (nItems_ == 0) cout << "(sin items)\n";
+        for (int i = 0; i < nItems_; ++i)
+            cout << "  " << menu_[i].id << ") " << left << setw(25) << menu_[i].nombre << right
+                 << "S/ " << fixed << setprecision(2) << menu_[i].precio << "\n";
     }
 
     string serializar() const override {
-        ostringstream o;
-        o << "NEGOCIO|" << base() << "\n";
-        for (const auto& it : menu_)
-            o << "ITEM|" << id_ << "|" << it.id << "|" << it.nombre << "|" << fixed
-              << setprecision(2) << it.precio << "\n";
-        return o.str();
+        string s = "NEGOCIO|" + base() + "\n";
+        for (int i = 0; i < nItems_; ++i)
+            s += "ITEM|" + to_string(id_) + "|" + to_string(menu_[i].id) + "|" +
+                 menu_[i].nombre + "|" + fmt(menu_[i].precio, 2) + "\n";
+        return s;
     }
 };
 
 class Cliente : public Entidad {
 public:
-    using Entidad::Entidad;
+    Cliente() : Entidad() {}
+    Cliente(int id, const string& nombre, Ubicacion u) : Entidad(id, nombre, u) {}
     string tipo() const override { return "CLIENTE"; }
     string serializar() const override { return "CLIENTE|" + base() + "\n"; }
 };
 
 struct Vehiculo {
-    string tipo;
+    string tipo;   // moto, bicicleta, auto...
     string placa;
 };
 
@@ -134,8 +174,10 @@ class Mensajero : public Entidad {
     bool disponible_;
 
 public:
+    Mensajero() : Entidad(), disponible_(true) {}
     Mensajero(int id, const string& nombre, Ubicacion u, Vehiculo v, bool disp = true)
-        : Entidad(id, nombre, u), vehiculo_{limpiar(v.tipo), limpiar(v.placa)}, disponible_(disp) {}
+        : Entidad(id, nombre, u), vehiculo_{limpiar(v.tipo), limpiar(v.placa)},
+          disponible_(disp) {}
 
     string tipo() const override { return "MENSAJERO"; }
     bool disponible() const { return disponible_; }
@@ -166,7 +208,10 @@ class TarifaPorKm : public CalculadoraTarifa {
 public:
     TarifaPorKm(double base = 3.0, double porKm = 1.5, double minima = 4.0)
         : base_(base), porKm_(porKm), minima_(minima) {}
-    double calcular(double km) const override { return max(minima_, base_ + porKm_ * km); }
+    double calcular(double km) const override {
+        double t = base_ + porKm_ * km;
+        return (t > minima_) ? t : minima_;
+    }
 };
 
 enum class EstadoOrden { Pendiente, Preparando, EnCamino, Entregado };
@@ -182,23 +227,30 @@ static string aTexto(EstadoOrden e) {
 }
 
 struct LineaOrden {
-    int itemId;
+    int itemId = 0;
     string nombre;
-    int cantidad;
-    double precio;
+    int cantidad = 0;
+    double precio = 0.0;
 };
 
 class Orden {
     int id_, clienteId_, negocioId_, mensajeroId_;
-    vector<LineaOrden> lineas_;
+    LineaOrden lineas_[MAX_LINEAS];
+    int nLineas_;
     double distanciaKm_, tarifa_;
     EstadoOrden estado_;
 
 public:
-    Orden(int id, int cli, int neg, int men, vector<LineaOrden> lineas, double km, double tarifa,
-          EstadoOrden est = EstadoOrden::Pendiente)
-        : id_(id), clienteId_(cli), negocioId_(neg), mensajeroId_(men), lineas_(move(lineas)),
-          distanciaKm_(km), tarifa_(tarifa), estado_(est) {}
+    Orden()
+        : id_(0), clienteId_(0), negocioId_(0), mensajeroId_(0), nLineas_(0),
+          distanciaKm_(0), tarifa_(0), estado_(EstadoOrden::Pendiente) {}
+
+    Orden(int id, int cli, int neg, int men, const LineaOrden lineas[], int n, double km,
+          double tarifa, EstadoOrden est = EstadoOrden::Pendiente)
+        : id_(id), clienteId_(cli), negocioId_(neg), mensajeroId_(men), nLineas_(0),
+          distanciaKm_(km), tarifa_(tarifa), estado_(est) {
+        for (int i = 0; i < n && i < MAX_LINEAS; ++i) lineas_[nLineas_++] = lineas[i];
+    }
 
     int id() const { return id_; }
     int clienteId() const { return clienteId_; }
@@ -210,7 +262,7 @@ public:
 
     double subtotal() const {
         double s = 0;
-        for (const auto& l : lineas_) s += l.cantidad * l.precio;
+        for (int i = 0; i < nLineas_; ++i) s += lineas_[i].cantidad * lineas_[i].precio;
         return s;
     }
     double total() const { return subtotal() + tarifa_; }
@@ -224,104 +276,110 @@ public:
     void mostrar() const {
         cout << "Orden #" << id_ << " | cliente " << clienteId_ << " | negocio " << negocioId_
              << " | mensajero " << mensajeroId_ << " | " << aTexto(estado_) << "\n";
-        for (const auto& l : lineas_)
-            cout << "    " << l.cantidad << " x " << l.nombre << " (S/ " << fixed
-                 << setprecision(2) << l.precio << ")\n";
+        for (int i = 0; i < nLineas_; ++i)
+            cout << "    " << lineas_[i].cantidad << " x " << lineas_[i].nombre << " (S/ "
+                 << fixed << setprecision(2) << lineas_[i].precio << ")\n";
         cout << fixed << setprecision(2) << "    Distancia: " << distanciaKm_
              << " km | Subtotal: S/ " << subtotal() << " | Envio: S/ " << tarifa_
              << " | TOTAL: S/ " << total() << "\n";
     }
 
     string serializar() const {
-        ostringstream o;
-        o << "ORDEN|" << id_ << "|" << clienteId_ << "|" << negocioId_ << "|" << mensajeroId_
-          << "|" << fixed << setprecision(4) << distanciaKm_ << "|" << setprecision(2)
-          << tarifa_ << "|" << static_cast<int>(estado_) << "|";
-        for (size_t i = 0; i < lineas_.size(); ++i) {
-            const auto& l = lineas_[i];
-            if (i) o << ";";
-            o << l.itemId << ":" << l.cantidad << ":" << fixed << setprecision(2) << l.precio
-              << ":" << l.nombre;
+        string s = "ORDEN|" + to_string(id_) + "|" + to_string(clienteId_) + "|" +
+                   to_string(negocioId_) + "|" + to_string(mensajeroId_) + "|" +
+                   fmt(distanciaKm_, 4) + "|" + fmt(tarifa_, 2) + "|" +
+                   to_string(static_cast<int>(estado_)) + "|";
+        for (int i = 0; i < nLineas_; ++i) {
+            if (i > 0) s += ";";
+            s += to_string(lineas_[i].itemId) + ":" + to_string(lineas_[i].cantidad) + ":" +
+                 fmt(lineas_[i].precio, 2) + ":" + lineas_[i].nombre;
         }
-        return o.str() + "\n";
+        return s + "\n";
     }
 };
 
-template <class T>
-static int siguienteId(const vector<T>& v) {
-    int m = 0;
-    for (const auto& e : v) m = max(m, e.id());
-    return m + 1;
-}
-
-template <class T>
-static T* buscar(vector<T>& v, int id) {
-    for (auto& e : v)
-        if (e.id() == id) return &e;
-    return nullptr;
-}
-
 class SistemaDelivery {
-    vector<Negocio> negocios_;
-    vector<Cliente> clientes_;
-    vector<Mensajero> mensajeros_;
-    vector<Orden> ordenes_;
+    Negocio negocios_[MAX_NEGOCIOS];
+    Cliente clientes_[MAX_CLIENTES];
+    Mensajero mensajeros_[MAX_MENSAJEROS];
+    Orden ordenes_[MAX_ORDENES];
+    int nNegocios_, nClientes_, nMensajeros_, nOrdenes_;
     TarifaPorKm tarifa_;
 
 public:
-    Negocio& registrarNegocio(const string& n, Ubicacion u) {
-        negocios_.emplace_back(siguienteId(negocios_), n, u);
-        return negocios_.back();
+    SistemaDelivery() : nNegocios_(0), nClientes_(0), nMensajeros_(0), nOrdenes_(0) {}
+
+    Negocio* registrarNegocio(const string& n, Ubicacion u) {
+        if (nNegocios_ >= MAX_NEGOCIOS) return nullptr;
+        negocios_[nNegocios_] = Negocio(siguienteId(negocios_, nNegocios_), n, u);
+        return &negocios_[nNegocios_++];
     }
-    Cliente& registrarCliente(const string& n, Ubicacion u) {
-        clientes_.emplace_back(siguienteId(clientes_), n, u);
-        return clientes_.back();
+    Cliente* registrarCliente(const string& n, Ubicacion u) {
+        if (nClientes_ >= MAX_CLIENTES) return nullptr;
+        clientes_[nClientes_] = Cliente(siguienteId(clientes_, nClientes_), n, u);
+        return &clientes_[nClientes_++];
     }
-    Mensajero& registrarMensajero(const string& n, Ubicacion u, Vehiculo v) {
-        mensajeros_.emplace_back(siguienteId(mensajeros_), n, u, v);
-        return mensajeros_.back();
+    Mensajero* registrarMensajero(const string& n, Ubicacion u, Vehiculo v) {
+        if (nMensajeros_ >= MAX_MENSAJEROS) return nullptr;
+        mensajeros_[nMensajeros_] = Mensajero(siguienteId(mensajeros_, nMensajeros_), n, u, v);
+        return &mensajeros_[nMensajeros_++];
     }
 
-    void agregar(Negocio n) { negocios_.push_back(move(n)); }
-    void agregar(Cliente c) { clientes_.push_back(move(c)); }
-    void agregar(Mensajero m) { mensajeros_.push_back(move(m)); }
-    void agregar(Orden o) { ordenes_.push_back(move(o)); }
-    void limpiarTodo() {
-        negocios_.clear(); clientes_.clear(); mensajeros_.clear(); ordenes_.clear();
+    bool agregar(const Negocio& n) {
+        if (nNegocios_ >= MAX_NEGOCIOS) return false;
+        negocios_[nNegocios_++] = n;
+        return true;
     }
+    bool agregar(const Cliente& c) {
+        if (nClientes_ >= MAX_CLIENTES) return false;
+        clientes_[nClientes_++] = c;
+        return true;
+    }
+    bool agregar(const Mensajero& m) {
+        if (nMensajeros_ >= MAX_MENSAJEROS) return false;
+        mensajeros_[nMensajeros_++] = m;
+        return true;
+    }
+    bool agregar(const Orden& o) {
+        if (nOrdenes_ >= MAX_ORDENES) return false;
+        ordenes_[nOrdenes_++] = o;
+        return true;
+    }
+    void limpiarTodo() { nNegocios_ = nClientes_ = nMensajeros_ = nOrdenes_ = 0; }
 
-    vector<Negocio>& negocios() { return negocios_; }
-    vector<Cliente>& clientes() { return clientes_; }
-    vector<Mensajero>& mensajeros() { return mensajeros_; }
-    vector<Orden>& ordenes() { return ordenes_; }
-    const vector<Negocio>& negocios() const { return negocios_; }
-    const vector<Cliente>& clientes() const { return clientes_; }
-    const vector<Mensajero>& mensajeros() const { return mensajeros_; }
-    const vector<Orden>& ordenes() const { return ordenes_; }
+    int cantNegocios() const { return nNegocios_; }
+    int cantClientes() const { return nClientes_; }
+    int cantMensajeros() const { return nMensajeros_; }
+    int cantOrdenes() const { return nOrdenes_; }
+    const Negocio& negocio(int i) const { return negocios_[i]; }
+    const Cliente& cliente(int i) const { return clientes_[i]; }
+    const Mensajero& mensajero(int i) const { return mensajeros_[i]; }
+    const Orden& orden(int i) const { return ordenes_[i]; }
 
-    Negocio* buscarNegocio(int id) { return buscar(negocios_, id); }
-    Cliente* buscarCliente(int id) { return buscar(clientes_, id); }
-    Mensajero* buscarMensajero(int id) { return buscar(mensajeros_, id); }
-    Orden* buscarOrden(int id) { return buscar(ordenes_, id); }
+    Negocio* buscarNegocio(int id) { return buscar(negocios_, nNegocios_, id); }
+    Cliente* buscarCliente(int id) { return buscar(clientes_, nClientes_, id); }
+    Mensajero* buscarMensajero(int id) { return buscar(mensajeros_, nMensajeros_, id); }
+    Orden* buscarOrden(int id) { return buscar(ordenes_, nOrdenes_, id); }
 
     Mensajero* mensajeroMasCercano(const Ubicacion& destino) {
         Mensajero* mejor = nullptr;
-        double mejorKm = numeric_limits<double>::max();
-        for (auto& m : mensajeros_) {
-            if (!m.disponible()) continue;
-            double d = m.ubicacion().distanciaKm(destino);
-            if (d < mejorKm) { mejorKm = d; mejor = &m; }
+        double mejorKm = 1e18;
+        for (int i = 0; i < nMensajeros_; ++i) {
+            if (!mensajeros_[i].disponible()) continue;
+            double d = mensajeros_[i].ubicacion().distanciaKm(destino);
+            if (d < mejorKm) { mejorKm = d; mejor = &mensajeros_[i]; }
         }
         return mejor;
     }
 
-    Orden* crearOrden(int clienteId, int negocioId, const vector<LineaOrden>& carrito,
+    Orden* crearOrden(int clienteId, int negocioId, const LineaOrden carrito[], int nLineas,
                       string& error) {
         Cliente* c = buscarCliente(clienteId);
         Negocio* n = buscarNegocio(negocioId);
         if (!c) { error = "Cliente no existe."; return nullptr; }
         if (!n) { error = "Negocio no existe."; return nullptr; }
-        if (carrito.empty()) { error = "El carrito esta vacio."; return nullptr; }
+        if (nLineas <= 0) { error = "El carrito esta vacio."; return nullptr; }
+        if (nOrdenes_ >= MAX_ORDENES) { error = "Se alcanzo el maximo de ordenes."; return nullptr; }
 
         Mensajero* m = mensajeroMasCercano(n->ubicacion());
         if (!m) { error = "No hay mensajeros disponibles."; return nullptr; }
@@ -330,9 +388,9 @@ public:
         double tarifa = tarifa_.calcular(km);
 
         m->setDisponible(false);
-        ordenes_.emplace_back(siguienteId(ordenes_), clienteId, negocioId, m->id(), carrito, km,
-                              tarifa);
-        return &ordenes_.back();
+        ordenes_[nOrdenes_] = Orden(siguienteId(ordenes_, nOrdenes_), clienteId, negocioId,
+                                    m->id(), carrito, nLineas, km, tarifa);
+        return &ordenes_[nOrdenes_++];
     }
 
     bool avanzarOrden(int id, string& msg) {
@@ -357,38 +415,39 @@ class RepositorioArchivo {
 
 public:
     RepositorioArchivo(string e = "entidades.txt", string o = "ordenes.txt")
-        : archEntidades_(move(e)), archOrdenes_(move(o)) {}
+        : archEntidades_(e), archOrdenes_(o) {}
 
     bool guardar(const SistemaDelivery& s) const {
-        ofstream fe(archEntidades_);
-        ofstream fo(archOrdenes_);
+        ofstream fe(archEntidades_.c_str());
+        ofstream fo(archOrdenes_.c_str());
         if (!fe || !fo) return false;
-        for (const auto& n : s.negocios()) fe << n.serializar();
-        for (const auto& c : s.clientes()) fe << c.serializar();
-        for (const auto& m : s.mensajeros()) fe << m.serializar();
-        for (const auto& o : s.ordenes()) fo << o.serializar();
+        for (int i = 0; i < s.cantNegocios(); ++i) fe << s.negocio(i).serializar();
+        for (int i = 0; i < s.cantClientes(); ++i) fe << s.cliente(i).serializar();
+        for (int i = 0; i < s.cantMensajeros(); ++i) fe << s.mensajero(i).serializar();
+        for (int i = 0; i < s.cantOrdenes(); ++i) fo << s.orden(i).serializar();
         return true;
     }
 
     bool leer(SistemaDelivery& s) const {
-        ifstream fe(archEntidades_);
-        ifstream fo(archOrdenes_);
+        ifstream fe(archEntidades_.c_str());
+        ifstream fo(archOrdenes_.c_str());
         if (!fe && !fo) return false;
         s.limpiarTodo();
 
         string linea;
+        string p[MAX_CAMPOS];
         while (getline(fe, linea)) {
-            auto p = dividir(linea, '|');
-            if (p.empty()) continue;
+            int n = dividir(linea, '|', p, MAX_CAMPOS);
+            if (n == 0) continue;
             try {
-                if (p[0] == "NEGOCIO" && p.size() >= 5) {
+                if (p[0] == "NEGOCIO" && n >= 5) {
                     s.agregar(Negocio(stoi(p[1]), p[2], {stod(p[3]), stod(p[4])}));
-                } else if (p[0] == "ITEM" && p.size() >= 5) {
-                    if (Negocio* n = s.buscarNegocio(stoi(p[1])))
-                        n->agregarItemConId(stoi(p[2]), p[3], stod(p[4]));
-                } else if (p[0] == "CLIENTE" && p.size() >= 5) {
+                } else if (p[0] == "ITEM" && n >= 5) {
+                    Negocio* neg = s.buscarNegocio(stoi(p[1]));
+                    if (neg) neg->agregarItemConId(stoi(p[2]), p[3], stod(p[4]));
+                } else if (p[0] == "CLIENTE" && n >= 5) {
                     s.agregar(Cliente(stoi(p[1]), p[2], {stod(p[3]), stod(p[4])}));
-                } else if (p[0] == "MENSAJERO" && p.size() >= 8) {
+                } else if (p[0] == "MENSAJERO" && n >= 8) {
                     s.agregar(Mensajero(stoi(p[1]), p[2], {stod(p[3]), stod(p[4])},
                                         {p[5], p[6]}, p[7] == "1"));
                 }
@@ -398,16 +457,23 @@ public:
         }
 
         while (getline(fo, linea)) {
-            auto p = dividir(linea, '|');
-            if (p.size() < 9 || p[0] != "ORDEN") continue;
+            int n = dividir(linea, '|', p, MAX_CAMPOS);
+            if (n < 9 || p[0] != "ORDEN") continue;
             try {
-                vector<LineaOrden> lineas;
-                for (const auto& tok : dividir(p[8], ';')) {
-                    auto q = dividir(tok, ':');
-                    if (q.size() < 4) continue;
-                    lineas.push_back({stoi(q[0]), q[3], stoi(q[1]), stod(q[2])});
+                LineaOrden lineas[MAX_LINEAS];
+                int nl = 0;
+                string toks[MAX_CAMPOS];
+                int nt = dividir(p[8], ';', toks, MAX_CAMPOS);
+                for (int i = 0; i < nt && nl < MAX_LINEAS; ++i) {
+                    string q[4];
+                    if (dividir(toks[i], ':', q, 4) < 4) continue;
+                    lineas[nl].itemId = stoi(q[0]);
+                    lineas[nl].cantidad = stoi(q[1]);
+                    lineas[nl].precio = stod(q[2]);
+                    lineas[nl].nombre = q[3];
+                    ++nl;
                 }
-                s.agregar(Orden(stoi(p[1]), stoi(p[2]), stoi(p[3]), stoi(p[4]), lineas,
+                s.agregar(Orden(stoi(p[1]), stoi(p[2]), stoi(p[3]), stoi(p[4]), lineas, nl,
                                 stod(p[5]), stod(p[6]), static_cast<EstadoOrden>(stoi(p[7]))));
             } catch (...) {
                 cerr << "Orden invalida ignorada: " << linea << "\n";
@@ -460,20 +526,24 @@ class App {
     void registrarNegocio() {
         string nombre = leerLinea("Nombre del negocio: ");
         Ubicacion u = leerUbicacion();
-        Negocio& n = sistema_.registrarNegocio(nombre, u);
+        Negocio* n = sistema_.registrarNegocio(nombre, u);
+        if (!n) { cout << "No hay espacio para mas negocios.\n"; return; }
         cout << "Agrega items al menu (nombre vacio para terminar):\n";
         while (true) {
             string it = leerLinea("  Item: ");
             if (it.empty()) break;
-            n.agregarItem(it, leerDouble("  Precio S/: "));
+            double precio = leerDouble("  Precio S/: ");
+            if (!n->agregarItem(it, precio)) { cout << "  Menu lleno.\n"; break; }
         }
-        cout << "Negocio registrado con id " << n.id() << ".\n";
+        cout << "Negocio registrado con id " << n->id() << ".\n";
     }
 
     void registrarCliente() {
         string nombre = leerLinea("Nombre del cliente: ");
         Ubicacion u = leerUbicacion();
-        cout << "Cliente registrado con id " << sistema_.registrarCliente(nombre, u).id() << ".\n";
+        Cliente* c = sistema_.registrarCliente(nombre, u);
+        if (c) cout << "Cliente registrado con id " << c->id() << ".\n";
+        else cout << "No hay espacio para mas clientes.\n";
     }
 
     void registrarMensajero() {
@@ -481,22 +551,24 @@ class App {
         string tipo = leerLinea("Tipo de vehiculo (moto/bici/auto): ");
         string placa = leerLinea("Placa: ");
         Ubicacion u = leerUbicacion();
-        cout << "Mensajero registrado con id "
-             << sistema_.registrarMensajero(nombre, u, {tipo, placa}).id() << ".\n";
+        Mensajero* m = sistema_.registrarMensajero(nombre, u, {tipo, placa});
+        if (m) cout << "Mensajero registrado con id " << m->id() << ".\n";
+        else cout << "No hay espacio para mas mensajeros.\n";
     }
 
     void listarEntidades() const {
         cout << "\n== NEGOCIOS ==\n";
-        for (const auto& n : sistema_.negocios()) { n.mostrar(); cout << "\n"; }
+        for (int i = 0; i < sistema_.cantNegocios(); ++i) { sistema_.negocio(i).mostrar(); cout << "\n"; }
         cout << "== CLIENTES ==\n";
-        for (const auto& c : sistema_.clientes()) { c.mostrar(); cout << "\n"; }
+        for (int i = 0; i < sistema_.cantClientes(); ++i) { sistema_.cliente(i).mostrar(); cout << "\n"; }
         cout << "== MENSAJEROS ==\n";
-        for (const auto& m : sistema_.mensajeros()) { m.mostrar(); cout << "\n"; }
+        for (int i = 0; i < sistema_.cantMensajeros(); ++i) { sistema_.mensajero(i).mostrar(); cout << "\n"; }
     }
 
     void verMenu() {
         int id = leerInt("Id del negocio: ");
-        if (Negocio* n = sistema_.buscarNegocio(id)) n->mostrarMenu();
+        Negocio* n = sistema_.buscarNegocio(id);
+        if (n) n->mostrarMenu();
         else cout << "Negocio no existe.\n";
     }
 
@@ -507,20 +579,26 @@ class App {
         if (!n || !sistema_.buscarCliente(cid)) { cout << "Cliente o negocio no existe.\n"; return; }
 
         n->mostrarMenu();
-        vector<LineaOrden> carrito;  // el "carrito"
+        LineaOrden carrito[MAX_LINEAS];
+        int nCarrito = 0;
         cout << "Agrega items al carrito (id 0 para terminar):\n";
-        while (true) {
+        while (nCarrito < MAX_LINEAS) {
             int iid = leerInt("  Id del item: ");
             if (iid == 0) break;
             const ItemMenu* it = n->buscarItem(iid);
             if (!it) { cout << "  Item no existe.\n"; continue; }
             int cant = leerInt("  Cantidad: ");
             if (cant <= 0) { cout << "  Cantidad invalida.\n"; continue; }
-            carrito.push_back({it->id, it->nombre, cant, it->precio});
+            carrito[nCarrito].itemId = it->id;
+            carrito[nCarrito].nombre = it->nombre;
+            carrito[nCarrito].cantidad = cant;
+            carrito[nCarrito].precio = it->precio;
+            ++nCarrito;
         }
+        if (nCarrito == MAX_LINEAS) cout << "Carrito lleno (maximo " << MAX_LINEAS << " lineas).\n";
 
         string error;
-        Orden* o = sistema_.crearOrden(cid, nid, carrito, error);
+        Orden* o = sistema_.crearOrden(cid, nid, carrito, nCarrito, error);
         if (!o) { cout << "No se pudo crear la orden: " << error << "\n"; return; }
 
         Mensajero* m = sistema_.buscarMensajero(o->mensajeroId());
@@ -535,8 +613,8 @@ class App {
     }
 
     void listarOrdenes() const {
-        if (sistema_.ordenes().empty()) cout << "No hay ordenes.\n";
-        for (const auto& o : sistema_.ordenes()) o.mostrar();
+        if (sistema_.cantOrdenes() == 0) cout << "No hay ordenes.\n";
+        for (int i = 0; i < sistema_.cantOrdenes(); ++i) sistema_.orden(i).mostrar();
     }
 
     void consultarDistancia() {
